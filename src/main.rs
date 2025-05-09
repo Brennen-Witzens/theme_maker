@@ -1,6 +1,7 @@
 use core::num;
 use std::{
     cell::RefCell,
+    cmp::{max, min, min_by},
     collections::{self, hash_map::Entry, HashMap},
     io::Cursor,
     ops::Index,
@@ -9,7 +10,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose, prelude::*};
-use image::{io::Reader, DynamicImage, GenericImageView, ImageFormat, Rgba};
+use image::{io::Reader, DynamicImage, GenericImage, GenericImageView, ImageFormat, Rgba};
 
 const PALETTE_SIZE: u8 = 16;
 const ESCAPE_KEY: &str = "\u{001b}[";
@@ -23,11 +24,20 @@ const RESET_KEY: &str = "\u{001b}[m";
 // );
 
 // Easier struct to work with than to work with the Image crates Rgba struct value of a u8 array
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct RGBAColor {
     r: u8,
     g: u8,
     b: u8,
     a: u8,
+    x: u32,
+    y: u32,
+}
+
+impl RGBAColor {
+    fn new(r: u8, g: u8, b: u8, a: u8, x: u32, y: u32) -> Self {
+        Self { r, g, b, a, x, y }
+    }
 }
 
 // TODO: Need to properly get error handling going
@@ -38,19 +48,24 @@ fn main() -> Result<(), std::io::Error> {
     // TODO:
     // 1. Get image via command line args
     // 2. should scale image
-    let img = image::open(".\\peach-blossom.png").unwrap();
+    let mut img = image::open(".\\peach-blossom.png").unwrap();
+    let mut colors = Vec::<RGBAColor>::new();
 
-    for (_, _, color) in img.pixels() {
-        if let Entry::Vacant(unique_colors) = unique_colors.entry(color) {
-            unique_colors.insert(1);
-        } else {
-            unique_colors.entry(color).and_modify(|count| *count += 1);
-        }
+    for (x, y, color) in img.pixels() {
+        //if let Entry::Vacant(unique_colors) = unique_colors.entry(color) {
+        //    unique_colors.insert(1);
+        //} else {
+        //    unique_colors.entry(color).and_modify(|count| *count += 1);
+        //}
+        colors.push(RGBAColor::new(
+            color.0[0], color.0[1], color.0[2], color.0[3], x, y,
+        ));
     }
 
-    println!("Unique Colors: {}", unique_colors.keys().count());
-    let colors: Vec<Rgba<u8>> = unique_colors.keys().map(|x| *x).collect();
-    let val = parse_unique_colors(&colors, &img);
+    //println!("Unique Colors: {}", unique_colors.keys().count());
+    //let colors: Vec<Rgba<u8>> = unique_colors.keys().map(|x| *x).collect();
+    median_cut(&mut img, &mut colors, 4);
+    //let val = parse_unique_colors(&colors, &img);
 
     // let mut palettes = Vec::<Vec<Rgba<u8>>>::new();
     //
@@ -79,6 +94,105 @@ fn main() -> Result<(), std::io::Error> {
     //let back_to_img = base64_to_image(base64_img);
     //back_to_img.save("./test_img.png").unwrap();
     Ok(())
+}
+
+fn median_cut_quantize(img: &mut DynamicImage, colors: &Vec<RGBAColor>) {
+    // When it reaches the end, color quantize
+    //println!("To Quantize: {}", colors.len());
+
+    let r_average = (colors.iter().map(|x| x.r as u32).sum::<u32>() / colors.len() as u32) as u8;
+    let g_average = (colors.iter().map(|x| x.g as u32).sum::<u32>() / colors.len() as u32) as u8;
+    let b_average = (colors.iter().map(|x| x.b as u32).sum::<u32>() / colors.len() as u32) as u8;
+
+    println!("Red Avg: {r_average} -- Green Avg: {g_average} -- Blue Avg: {b_average}");
+
+    // This replicates the image by using the colors we found :)
+    //for data in colors.iter() {
+    //    img.put_pixel(
+    //        data.x,
+    //        data.y,
+    //        Rgba::<u8> {
+    //            0: [r_average, g_average, b_average, data.a],
+    //        },
+    //    );
+    //}
+    //img.save("./color_test.png").unwrap();
+
+    // What we want though is just the colors
+    // Print out colors
+    println!(
+        "Color averages: Red Avg: {r_average} -- Green Avg: {g_average} -- Blue Avg: {b_average} ->"
+    );
+    println!(
+        "\u{001b}[48;2;{};{};{}m    \u{001b}[m",
+        r_average, g_average, b_average
+    );
+}
+
+// Colors -> 'Image Array'
+// Depth -> How many colors are needed in the power of 2. So example: 4 -> 2^4 = 16, so 16 colors
+// would be "found"
+fn median_cut(img: &mut DynamicImage, colors: &mut Vec<RGBAColor>, depth: i32) {
+    if colors.len() == 0 {
+        return;
+    }
+
+    if depth == 0 {
+        // Call 'median_cut_quantize'
+        // Basically Actually average the colors and print them
+        median_cut_quantize(img, colors);
+        return;
+    }
+
+    // Find out which color channel has the greatest range
+    let mut r_range;
+    let mut g_range;
+    let mut b_range;
+    let mut r_max = 0;
+    let mut r_min = 0;
+    let mut g_max = 0;
+    let mut g_min = 0;
+    let mut b_max = 0;
+    let mut b_min = 0;
+
+    r_max = colors.iter().max().map(|x| x.r).expect("found no max");
+    r_min = colors.iter().min().map(|x| x.r).expect("found no min");
+    r_range = r_max - r_min;
+    g_max = colors.iter().max().map(|x| x.g).expect("found no max");
+    g_min = colors.iter().min().map(|x| x.g).expect("found no min");
+    g_range = g_max - g_min;
+    b_max = colors.iter().max().map(|x| x.b).expect("found no max");
+    b_min = colors.iter().min().map(|x| x.b).expect("found no min");
+    b_range = b_max - b_min;
+
+    //print!("Red Range: {r_range} -- Green Range: {g_range} -- Blue Range: {b_range}");
+
+    // Found range with largest distance
+    //  Now sort by that.
+
+    if r_range >= b_range && r_range >= g_range {
+        colors.sort_by(|a, b| a.r.cmp(&b.r));
+    }
+    if g_range >= r_range && g_range >= b_range {
+        colors.sort_by(|a, b| a.g.cmp(&b.g));
+    }
+    if b_range >= r_range && b_range >= g_range {
+        colors.sort_by(|a, b| a.b.cmp(&b.b));
+    }
+
+    // Find the median and split
+    let median_index = (colors.len() + 1) / 2;
+    println!("Median index: {median_index}");
+
+    // Split into buckets (upper and lower side)
+    // **Recursive call
+    let mut colors_lower = colors.split_off(median_index);
+
+    // Call median cut "twice"
+    // -> colors
+    // -> colors_lower
+    median_cut(img, colors, depth - 1);
+    median_cut(img, &mut colors_lower, depth - 1);
 }
 
 // TODO:
