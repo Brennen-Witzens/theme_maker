@@ -1,57 +1,79 @@
+use core::num;
 use std::{
-    collections::HashMap, error::Error, intrinsics::drop_in_place, io::Cursor, num, ops::Div,
-    sync::mpsc::channel, usize, vec,
+    cell::RefCell,
+    collections::{self, hash_map::Entry, HashMap},
+    io::Cursor,
+    ops::Index,
+    rc::Rc,
+    usize,
 };
 
 use base64::{engine::general_purpose, prelude::*};
-use image::{
-    io::Reader, DynamicImage, GenericImage, GenericImageView, ImageFormat, Pixel, Rgb, Rgba,
-};
+use image::{io::Reader, DynamicImage, GenericImageView, ImageFormat, Rgba};
 
 const PALETTE_SIZE: u8 = 16;
-const NUM_COLORS: u8 = 8;
 const ESCAPE_KEY: &str = "\u{001b}[";
 const RESET_KEY: &str = "\u{001b}[m";
 
 // Print out colors
-//println!("Average color is: {average:?}");
-//println!(
+// println!("Average color is: {average:?}");
+// println!(
 //    "\u{001b}[38;2;{};{};{}mHello\u{001b}[m",
 //    average.0[0], average.0[1], average.0[2]
-//);
+// );
 
+// Easier struct to work with than to work with the Image crates Rgba struct value of a u8 array
+struct RGBAColor {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+// TODO: Need to properly get error handling going
 fn main() -> Result<(), std::io::Error> {
+    let mut unique_colors = HashMap::<Rgba<u8>, i32>::new();
+
     // Open Image
-    // TODO: should scale image
+    // TODO:
+    // 1. Get image via command line args
+    // 2. should scale image
     let img = image::open(".\\peach-blossom.png").unwrap();
 
-    let mut colors = Vec::<Rgba<u8>>::new();
     for (_, _, color) in img.pixels() {
-        colors.push(color);
-    }
-
-    let mut palettes = Vec::<Vec<Rgba<u8>>>::new();
-
-    let val = find_ten_unique_colors(&colors);
-
-    let chunked: Vec<_> = val.chunks(16).collect();
-    let mut chunked_palettes: Vec<_> = chunked.iter().map(|x| x.to_vec()).collect();
-
-    for c_palettes in chunked_palettes.iter() {
-        let mut palette = Vec::<Rgba<u8>>::new();
-        for (j, color) in c_palettes.iter().enumerate() {
-            if !is_color_too_similar(c_palettes, NUM_COLORS, *color) {
-                palette.push(*color);
-            } else {
-                let blend = blend_colors(*color, c_palettes[j], 0.5);
-                palette.push(blend);
-            }
+        if let Entry::Vacant(unique_colors) = unique_colors.entry(color) {
+            unique_colors.insert(1);
+        } else {
+            unique_colors.entry(color).and_modify(|count| *count += 1);
         }
-
-        palettes.push(palette.clone());
     }
 
-    print_palettes(palettes);
+    println!("Unique Colors: {}", unique_colors.keys().count());
+    let colors: Vec<Rgba<u8>> = unique_colors.keys().map(|x| *x).collect();
+    let val = parse_unique_colors(&colors, &img);
+
+    // let mut palettes = Vec::<Vec<Rgba<u8>>>::new();
+    //
+    //    let val = find_ten_unique_colors(&colors);
+    //
+    // let chunked: Vec<_> = val.chunks(16).collect();
+    // let mut chunked_palettes: Vec<_> = chunked.iter().map(|x| x.to_vec()).collect();
+
+    // for c_palettes in chunked_palettes.iter() {
+    //     let mut palette = Vec::<Rgba<u8>>::new();
+    //     for (j, color) in c_palettes.iter().enumerate() {
+    //         if !is_color_too_similar(c_palettes, NUM_COLORS, *color) {
+    //             palette.push(*color);
+    //         } else {
+    //             let blend = blend_colors(*color, c_palettes[j], 0.5);
+    //             palette.push(blend);
+    //         }
+    //     }
+
+    //     palettes.push(palette.clone());
+    // }
+
+    //print_palettes(palettes);
     //let base64_img = image_to_base64(&img);
     //println!("Base 64 Image: {base64_img:?}");
     //let back_to_img = base64_to_image(base64_img);
@@ -59,33 +81,71 @@ fn main() -> Result<(), std::io::Error> {
     Ok(())
 }
 
+// TODO:
+// 1. Need to get this to properly print out in 2 rows
+// 2. Need to work on getting the palette size cut down (i do not need to have 500+ values)
 fn print_palettes(palettes: Vec<Vec<Rgba<u8>>>) {
     // We got a fuck ton of palettes generated (most are probably similar in some way)
     // Will print 2 or 3 palettes
     // TODO: can get random values
     // - A start for printing the colors
-    for i in 0..palettes[0].len() {
-        println!(
-            "{}48;2;{};{};{}m    {}",
-            ESCAPE_KEY, palettes[0][i].0[0], palettes[0][i].0[1], palettes[0][i].0[2], RESET_KEY
-        );
-        println!(
-            "{}48;2;{};{};{}m    {}",
-            ESCAPE_KEY, palettes[0][i].0[0], palettes[0][i].0[1], palettes[0][i].0[2], RESET_KEY
-        );
+
+    let rand_a = 100;
+    let rand_b = 700;
+    let rand_c = 1200;
+
+    for (i, palette) in palettes.iter().enumerate() {
+        if i == rand_a {
+            println!("Palette One");
+            for x in 0..palette.len() {
+                println!(
+                    "{}48;2;{};{};{}m    {}",
+                    ESCAPE_KEY, palette[x].0[0], palette[x].0[1], palette[x].0[2], RESET_KEY
+                );
+                println!(
+                    "{}48;2;{};{};{}m    {}",
+                    ESCAPE_KEY, palette[x].0[0], palette[x].0[1], palette[x].0[2], RESET_KEY
+                );
+            }
+        } else if i == rand_b {
+            println!("Palette Two");
+            for x in 0..palette.len() {
+                println!(
+                    "{}48;2;{};{};{}m    {}",
+                    ESCAPE_KEY, palette[x].0[0], palette[x].0[1], palette[x].0[2], RESET_KEY
+                );
+                println!(
+                    "{}48;2;{};{};{}m    {}",
+                    ESCAPE_KEY, palette[x].0[0], palette[x].0[1], palette[x].0[2], RESET_KEY
+                );
+            }
+        } else if i == rand_c {
+            println!("Palette Three");
+            for x in 0..palette.len() {
+                println!(
+                    "{}48;2;{};{};{}m    {}",
+                    ESCAPE_KEY, palette[x].0[0], palette[x].0[1], palette[x].0[2], RESET_KEY
+                );
+                println!(
+                    "{}48;2;{};{};{}m    {}",
+                    ESCAPE_KEY, palette[x].0[0], palette[x].0[1], palette[x].0[2], RESET_KEY
+                );
+            }
+        }
     }
 }
 
+// TODO: Need to re-work this potentially
 fn average_color(palette: &Vec<Rgba<u8>>, end: u8) -> Rgba<u8> {
     let mut sum_r: i32 = 0;
     let mut sum_g: i32 = 0;
     let mut sum_b: i32 = 0;
 
-    for color in palette.iter() {
+    for i in 0..end {
         // If we've gone through end number values, break out
-        sum_r += color.0[0] as i32;
-        sum_g += color.0[1] as i32;
-        sum_b += color.0[2] as i32;
+        sum_r += palette[i as usize].0[0] as i32;
+        sum_g += palette[i as usize].0[1] as i32;
+        sum_b += palette[i as usize].0[2] as i32;
 
         //let test: Vec<i32> = img.pixels().map(|g| g.2 .0[1].into()).collect();
         //sum_g = test.iter().sum();
@@ -103,6 +163,7 @@ fn average_color(palette: &Vec<Rgba<u8>>, end: u8) -> Rgba<u8> {
     return avg;
 }
 
+// TODO: still want to keep these but will probably move functions and modules around
 fn image_to_base64(img: &DynamicImage) -> String {
     let mut image_data: Vec<u8> = Vec::new();
     img.write_to(&mut Cursor::new(&mut image_data), ImageFormat::Jpeg)
@@ -112,6 +173,7 @@ fn image_to_base64(img: &DynamicImage) -> String {
     format!("{}", res_base64)
 }
 
+// TODO: still want to keep these but will probably move functions and modules around
 fn base64_to_image(str: String) -> DynamicImage {
     let decoded_string = general_purpose::STANDARD.decode(str).unwrap();
     let reader = Reader::new(Cursor::new(decoded_string))
@@ -122,107 +184,141 @@ fn base64_to_image(str: String) -> DynamicImage {
     image
 }
 
-// TODO:
-// Refactor plans
-// - Do unique colors first
-// - Iterate over unique colors, bring down the values to a smaller number
-// - Average this smaller number
-// - Then determine distance etc,
-
-fn find_ten_unique_colors(colors: &Vec<Rgba<u8>>) -> Vec<Rgba<u8>> {
+fn parse_unique_colors(colors: &Vec<Rgba<u8>>, img: &DynamicImage) -> Vec<Rgba<u8>> {
     let mut unique_colors = HashMap::<Rgba<u8>, i32>::new();
     let mut palette = Vec::<Rgba<u8>>::new();
     let mut avg_color_palette = Vec::<Rgba<u8>>::new();
     // TODO: Change to RC/ARC for better performance and better understanding of how to use them
 
-    // Need to "average" the colors in the palette vec
-    // Currently we have every pixel color in there. We need to bring that down a TON
-    // We want to group them every 16 pixels?
+    let mut num_colors = 0;
+    let chunked_unique: Vec<_> = colors.chunks_exact(16).collect();
 
-    let chunked_palette: Vec<_> = colors.chunks(16).collect();
+    palette = chunked_unique[0].to_vec().clone();
 
-    for val in chunked_palette.iter() {
-        let average = average_color(&val.to_vec(), PALETTE_SIZE);
-        avg_color_palette.push(average);
-    }
+    let sample_points: Vec<u32> = vec![
+        0,
+        img.height(),
+        img.width(),
+        (img.height() - 250 + img.width() - 1000),
+        (img.height() / 3 + img.width() / 3),
+        ((img.height() / 4) + (img.width() / 4)),
+        img.height() * 2,
+        img.width() * 2,
+    ];
 
-    for val in avg_color_palette.iter() {
-        if !unique_colors.contains_key(val) {
-            unique_colors.insert(*val, 1);
-        } else {
-            unique_colors.entry(*val).and_modify(|count| *count += 1);
-        }
-    }
+    println!("Chunked unique length: {}", chunked_unique.len());
+    for i in 0..PALETTE_SIZE {
+        let mut new_color = colors[num_colors as usize];
 
-    let test: Vec<Rgba<u8>> = unique_colors.keys().map(|x| *x).collect();
-
-    for (i, key) in test.iter().enumerate() {
-        if !is_color_too_similar(&test, NUM_COLORS, *key) {
+        if !is_color_too_similar(&palette, num_colors, new_color) {
             // Color is NOT too similar
-            palette.push(*key);
+            //println!("Color is NOT too similar");
+            //for color in chunked_unique[0] {
+            //    print!(" Color is: {color:?} -> ");
+            //    println!(
+            //        "{}48;2;{};{};{}m    {}",
+            //        ESCAPE_KEY, color.0[0], color.0[1], color.0[2], RESET_KEY
+            //    );
+            //}
+
+            // Add it to the values... probably incorrect
+            palette[i as usize] = new_color;
         } else {
             // Color IS too similar
-            let new_color = blend_colors(*key, test[i], 0.5);
-            palette.push(new_color);
+            //println!("Color IS too similar");
+            //for color in chunked_unique[0] {
+            //    print!(" Color is: {color:?} -> ");
+            //    println!(
+            //        "{}48;2;{};{};{}m    {}",
+            //        ESCAPE_KEY, color.0[0], color.0[1], color.0[2], RESET_KEY
+            //    );
+            //}
+
+            new_color = blend_colors(new_color, palette[i as usize], 0.5);
+            //println!("Blended: {:?}", blended);
+            //println!(
+            //    "\u{001b}[48;2;{};{};{}m    \u{001b}[m",
+            //    blended.0[0], blended.0[1], blended.0[2]
+            //);
+            palette[i as usize] = new_color;
         }
+
+        num_colors += 1;
     }
-    palette
 
-    //let mut sorted_unique_colors: Vec<_> = unique_colors.iter().collect();
-
-    //sorted_unique_colors.sort_by(|a, b| b.1.cmp(a.1));
-
-    //// Drain everything after top 10 out of sorted_unique_colors
-    //// Ignore everything after the 10
-    //let _: Vec<_> = sorted_unique_colors.drain(50..).collect();
-
-    // Convert colors to hex
-    // Organize print out
-    // Display colors
-
-    //for (color, _) in sorted_unique_colors.into_iter() {
-    //    println!("Colors: {:?}", color);
-    //    println!(
-    //        "\u{001b}[38;2;{};{};{}m{}\u{001b}[m",
-    //        color.0[0], color.0[1], color.0[2], "Hello"
-    //    );
-    //}
-
-    //    for color in palette.iter() {
-    //        println!("Palette: {:?}", color);
+    //for color in chunked_unique[0].iter() {
+    //    if !is_color_too_similar(
+    //        &chunked_unique[0].to_vec(),
+    //        PALETTE_SIZE,
+    //        chunked_unique[0][0],
+    //    ) {
+    //        // Color is NOT too similar
+    //        println!("Iterating Colors: {:?}", color);
     //        println!(
     //            "\u{001b}[38;2;{};{};{}mHello\u{001b}[m",
     //            color.0[0], color.0[1], color.0[2]
     //        );
+    //    } else {
+    //        let blended = blend_colors(chunked_unique[0][0], *color, 0.5);
+    //        println!(
+    //            "Iterating Colors: {:?} -- 'First color': {:?} -> Blended Color: {:?}",
+    //            color, chunked_unique[0][0], blended
+    //        );
+    //        println!(
+    //            "\u{001b}[38;2;{};{};{}mHello\u{001b}[m",
+    //            blended.0[0], blended.0[1], blended.0[2]
+    //        );
     //    }
-
-    //for color in new_palette.iter() {
-    //    println!("New_Palette: {:?}", color);
-    //    println!(
-    //        "\u{001b}[38;2;{};{};{}mHello\u{001b}[m",
-    //        color.0[0], color.0[1], color.0[2]
-    //    );
     //}
+
+    //let test: Vec<Rgba<u8>> = unique_colors.keys().map(|x| *x).collect();
+
+    //// Grab x number of random colors from the Colors vec to be "picked" as new_color
+
+    //for j in 0..PALETTE_SIZE {
+    //    let mut i: u32 = 0;
+
+    //    if j >= NUM_COLORS {
+    //        i = (PALETTE_SIZE - j) as u32;
+    //    } else {
+    //        i = sample_colors[j as usize];
+    //    }
+    //    let mut new_color = colors[i as usize];
+    //    println!("-> What is new color: {new_color:?}");
+    //    if !is_color_too_similar(&test, NUM_COLORS, new_color) {
+    //        // Color is NOT too similar
+    //        palette.push(new_color);
+    //    } else {
+    //        // Color IS too similar
+    //        new_color = blend_colors(new_color, test[j as usize], 0.5);
+    //        palette.push(new_color);
+    //    }
+    //}
+
+    for color in palette.iter() {
+        println!("Palette color is: {color:?}");
+        println!(
+            "\u{001b}[48;2;{};{};{}m    \u{001b}[m",
+            color.0[0], color.0[1], color.0[2]
+        );
+    }
+
+    println!("Palette length: {}", palette.len());
+    palette
 }
 
 fn caclulate_color_distance(color_one: Rgba<u8>, color_two: Rgba<u8>) -> f32 {
     //println!("Color One: {color_one:?} -- Color Two: {color_two:?}");
     f32::sqrt(
-        f32::powf((color_one.0[0] as f32 - color_two.0[0] as f32).into(), 2.0)
-            + f32::powf((color_one.0[1] as f32 - color_two.0[1] as f32).into(), 2.0)
-            + f32::powf((color_one.0[2] as f32 - color_two.0[2] as f32).into(), 2.0),
+        (i32::pow((color_one.0[0] as i32 - color_two.0[0] as i32).into(), 2)
+            + i32::pow((color_one.0[1] as i32 - color_two.0[1] as i32).into(), 2)
+            + i32::pow((color_one.0[2] as i32 - color_two.0[2] as i32).into(), 2)) as f32,
     )
 }
 
 fn is_color_too_similar(palette: &Vec<Rgba<u8>>, num_colors: u8, new_color: Rgba<u8>) -> bool {
     // We go until Num_colors
     for i in 0..num_colors {
-        //println!(
-        //    "Is Color too Similar: {:?} -- New_Color: {:?} -- Distance: {}",
-        //    palette[i as usize],
-        //    new_color,
-        //    (caclulate_color_distance(palette[i as usize], new_color) < 35.0)
-        //);
         if caclulate_color_distance(palette[i as usize], new_color) < 35.0 {
             // Color is too similar, we need to blend
             return true;
@@ -243,3 +339,7 @@ fn blend_colors(color_one: Rgba<u8>, color_two: Rgba<u8>, weight: f32) -> Rgba<u
     };
     return blended_color;
 }
+
+// TODO:
+// Need to get rgb to hexadecimal working
+fn convert_rgb_to_hexadecimal() {}
