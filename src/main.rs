@@ -2,11 +2,15 @@ mod algorithms;
 mod utils;
 
 use clap::{Arg, Command};
-use std::{cmp::Ordering, collections::HashMap, hash::Hash, ops::Deref, path::PathBuf};
+use std::path::PathBuf;
 
 fn main() {
+    let _ = build_command_matches();
+}
+
+fn build_command_matches() -> Option<PathBuf> {
     // Get the commands
-    let matches = Command::new("")
+    let matches = Command::new("myapp")
         .arg(Arg::new("image").short('i').long("image"))
         .get_matches();
 
@@ -14,11 +18,13 @@ fn main() {
         let path = PathBuf::from(image_path);
         if path.is_relative() {
             println!("Please use absolute path");
-            return;
+            return None;
         }
-
-        let _ = image::open(path.as_path());
-    };
+        return Some(path);
+    } else {
+        println!("Nothing was passed in");
+        return None;
+    }
 }
 
 #[cfg(test)]
@@ -81,5 +87,19 @@ mod tests {
         let path = PathBuf::from("C:/Dev/rust/image_testing/src/images/nessa.jpg");
         let image = image::open(path.as_path());
         assert!(image.is_ok(), "Image did not load successfully");
+    }
+
+    #[test]
+    fn get_rgb_pixels_from_image() {
+        let path = PathBuf::from("C:/Dev/rust/image_testing/src/images/nessa.jpg");
+        let image = image::open(path.as_path());
+
+        if let Ok(image) = image {
+            let colored_image = image.into_rgb16();
+            let element = colored_image.pixels().next();
+
+            assert!(element.is_some(), "Failed to get rgb pixels from image");
+            let x = element.unwrap();
+        };
     }
 }
