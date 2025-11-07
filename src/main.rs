@@ -2,13 +2,31 @@ mod algorithms;
 mod utils;
 
 use clap::{Arg, Command};
-use std::path::PathBuf;
+use image::GenericImageView;
+use std::path::{Path, PathBuf};
 
-fn main() {
-    let _ = build_command_matches();
+#[derive(Debug, PartialEq, PartialOrd)]
+struct RGBColor {
+    red: u8,
+    green: u8,
+    blue: u8,
 }
 
-fn build_command_matches() -> Option<PathBuf> {
+impl RGBColor {
+    pub fn build_color(red: u8, green: u8, blue: u8) -> Self {
+        Self { red, green, blue }
+    }
+}
+
+fn main() {
+    let image_path = build_image_path();
+
+    if let Some(path) = image_path {
+        let colors = get_pixels_from_image(&path);
+    }
+}
+
+fn build_image_path() -> Option<PathBuf> {
     // Get the commands
     let matches = Command::new("myapp")
         .arg(Arg::new("image").short('i').long("image"))
@@ -27,11 +45,37 @@ fn build_command_matches() -> Option<PathBuf> {
     }
 }
 
+fn get_pixels_from_image(image_path: &Path) -> Vec<RGBColor> {
+    let image = image::open(image_path);
+
+    let mut colors = Vec::<RGBColor>::new();
+
+    if let Ok(image_result) = image {
+        for element in image_result.pixels() {
+            colors.push(RGBColor::build_color(
+                element.2 .0[0],
+                element.2 .0[1],
+                element.2 .0[2],
+            ));
+        }
+    }
+    colors
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use clap::value_parser;
 
+    // NOTE:
+    // While this was writing tests first, it wasn't TDD style. This was "forcing" the tests to
+    // work in the intended way then writing the code logic to mirror this. We want to write a test
+    // that fails first, then implement the function code that will make it pass. We would call the
+    // function inside the test to make sure it works the way we want. Going forward I will be
+    // working like that -- These first few might eventually get removed or refactored but for now
+    // they're an example
+
+    // Check to see if no command line args are passed in
     #[test]
     fn get_command_line_arg_path_none() {
         // Path variable
@@ -42,6 +86,8 @@ mod tests {
         let path = matches.get_one::<String>("image");
         assert_eq!(path, None);
     }
+
+    // Check we have command line path -> hard coded relative path
     #[test]
     fn get_command_line_arg_path_some() {
         // Path variable
@@ -59,6 +105,7 @@ mod tests {
         assert_eq!(path, Some(&"./images/nessa.jpg".to_string()));
     }
 
+    // Another check if path is relative, this time from command line
     #[test]
     fn command_line_arg_path_is_relative() {
         let matches = Command::new("myapp")
@@ -76,12 +123,14 @@ mod tests {
         assert!(path.is_relative());
     }
 
+    // Test if a path is relative. Makes it easier to use an absolute path
     #[test]
     fn return_with_please_use_absolute_path() {
         let path = PathBuf::from("./src/images/nessa.jpg");
         assert!(path.is_relative(), "Please use absolute path");
     }
 
+    // Load the image from path
     #[test]
     fn load_image_from_path() {
         let path = PathBuf::from("C:/Dev/rust/image_testing/src/images/nessa.jpg");
@@ -89,17 +138,11 @@ mod tests {
         assert!(image.is_ok(), "Image did not load successfully");
     }
 
+    // Just determine that we have managed to get pixel colors into a vector here
     #[test]
     fn get_rgb_pixels_from_image() {
         let path = PathBuf::from("C:/Dev/rust/image_testing/src/images/nessa.jpg");
-        let image = image::open(path.as_path());
 
-        if let Ok(image) = image {
-            let colored_image = image.into_rgb16();
-            let element = colored_image.pixels().next();
-
-            assert!(element.is_some(), "Failed to get rgb pixels from image");
-            let x = element.unwrap();
-        };
+        assert!(get_pixels_from_image(path.as_path()).len() > 0);
     }
 }
