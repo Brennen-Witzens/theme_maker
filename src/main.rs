@@ -23,7 +23,34 @@ fn main() {
 
     if let Some(path) = image_path {
         let colors = get_pixels_from_image(&path);
+
+        // Take the colors from the image and calculate the range of each component
+        let range = find_color_range(&colors);
+        println!("Range: {range:?}");
+
+        // Once we have the range, we need to split the values on the largest component and then
+        // find the median value and split the cubes to upper and lower values.
+        // NOTE: might be worth using a map for this
     }
+}
+
+/// Takes in a vector of colors, and returns a color with the max range of each value for the cube
+fn find_color_range(cube: &Vec<RGBColor>) -> RGBColor {
+    // Iterate over the cube to find the min and max values for each channel
+    let r_max = cube.iter().max_by(|x, y| x.red.cmp(&y.red)).unwrap();
+    let r_min = cube.iter().min_by(|x, y| x.red.cmp(&y.red)).unwrap();
+    let r_range = r_max.red - r_min.red;
+
+    let g_max = cube.iter().max_by(|x, y| x.green.cmp(&y.green)).unwrap();
+    let g_min = cube.iter().min_by(|x, y| x.green.cmp(&y.green)).unwrap();
+    let g_range = g_max.green - g_min.green;
+
+    let b_max = cube.iter().max_by(|x, y| x.blue.cmp(&y.blue)).unwrap();
+    let b_min = cube.iter().min_by(|x, y| x.blue.cmp(&y.blue)).unwrap();
+    let b_range = b_max.blue - b_min.blue;
+
+    let color_range = RGBColor::build_color(r_range, g_range, b_range);
+    return color_range;
 }
 
 fn build_image_path() -> Option<PathBuf> {
