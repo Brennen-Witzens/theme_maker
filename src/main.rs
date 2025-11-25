@@ -3,9 +3,14 @@ mod utils;
 
 use clap::{Arg, Command};
 use image::GenericImageView;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    fmt::format,
+    path::{Path, PathBuf},
+};
 
-#[derive(Debug, PartialEq, PartialOrd)]
+// NOTE: dont necessarily want to use clone...
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
 struct RGBColor {
     red: u8,
     green: u8,
@@ -18,6 +23,16 @@ impl RGBColor {
     }
 }
 
+#[derive(Debug)]
+enum RGB {
+    Red,
+    Green,
+    Blue,
+}
+
+// default palette size
+const DEFAULT_PALETTE_SIZE: u8 = 6;
+
 fn main() {
     let image_path = build_image_path();
 
@@ -26,16 +41,93 @@ fn main() {
 
         // Take the colors from the image and calculate the range of each component
         let range = find_color_range(&colors);
-        println!("Range: {range:?}");
 
         // Once we have the range, we need to split the values on the largest component and then
         // find the median value and split the cubes to upper and lower values.
         // NOTE: might be worth using a map for this
+        let mut median_split = find_median(&range, colors, 1);
+
+        // We have the first 2 cubes, now we need to get the rest
+        for i in 2..DEFAULT_PALETTE_SIZE {
+            let cube = median_split.get(&format(format_args!("Cube{i}")));
+            if let Some(cube) = cube {
+                let range = find_color_range(cube);
+                println!("Range two: {range:?}");
+
+                median_split.extend(find_median(&range, cube.clone(), i));
+            }
+        }
+        println!("Median Split: {:?}", median_split.keys());
     }
 }
 
+fn find_median(
+    color_to_cut: &RGB,
+    mut colors: Vec<RGBColor>,
+    idx: u8,
+) -> HashMap<String, Vec<RGBColor>> {
+    let mut upper_values: Vec<RGBColor> = Vec::new();
+    let mut lower_values: Vec<RGBColor> = Vec::new();
+    let median: u8;
+    let median_idx = colors.len() / 2;
+
+    match color_to_cut {
+        RGB::Red => {
+            colors.sort_by(|x, y| x.red.cmp(&y.red));
+            if colors.len().is_multiple_of(2) {
+                median = (colors[median_idx - 1].red + colors[median_idx].red) / 2;
+            } else {
+                median = colors[median_idx].red;
+            }
+            for color in colors {
+                if color.red >= median {
+                    upper_values.push(color);
+                } else {
+                    lower_values.push(color);
+                }
+            }
+        }
+        RGB::Green => {
+            colors.sort_by(|x, y| x.green.cmp(&y.green));
+            if colors.len().is_multiple_of(2) {
+                median = (colors[median_idx - 1].green + colors[median_idx].green) / 2;
+            } else {
+                median = colors[median_idx].green;
+            }
+            for color in colors {
+                if color.green >= median {
+                    upper_values.push(color);
+                } else {
+                    lower_values.push(color);
+                }
+            }
+        }
+        RGB::Blue => {
+            colors.sort_by(|x, y| x.blue.cmp(&y.blue));
+            if colors.len().is_multiple_of(2) {
+                median = (colors[median_idx - 1].blue + colors[median_idx].blue) / 2;
+            } else {
+                median = colors[median_idx].blue;
+            }
+            for color in colors {
+                if color.blue >= median {
+                    upper_values.push(color);
+                } else {
+                    lower_values.push(color);
+                }
+            }
+        }
+    }
+
+    let mut map: HashMap<String, Vec<RGBColor>> = HashMap::new();
+
+    map.insert(format(format_args!("Cube{}", idx)), upper_values);
+    map.insert(format(format_args!("Cube{}", idx + 1)), lower_values);
+    map
+}
+
 /// Takes in a vector of colors, and returns a color with the max range of each value for the cube
-fn find_color_range(cube: &Vec<RGBColor>) -> RGBColor {
+fn find_color_range(cube: &[RGBColor]) -> RGB {
     // Iterate over the cube to find the min and max values for each channel
     let r_max = cube.iter().max_by(|x, y| x.red.cmp(&y.red)).unwrap();
     let r_min = cube.iter().min_by(|x, y| x.red.cmp(&y.red)).unwrap();
@@ -49,8 +141,13 @@ fn find_color_range(cube: &Vec<RGBColor>) -> RGBColor {
     let b_min = cube.iter().min_by(|x, y| x.blue.cmp(&y.blue)).unwrap();
     let b_range = b_max.blue - b_min.blue;
 
-    let color_range = RGBColor::build_color(r_range, g_range, b_range);
-    return color_range;
+    if r_range >= g_range && r_range >= b_range {
+        RGB::Red
+    } else if g_range >= r_range && g_range >= b_range {
+        RGB::Green
+    } else {
+        RGB::Blue
+    }
 }
 
 fn build_image_path() -> Option<PathBuf> {
@@ -65,10 +162,10 @@ fn build_image_path() -> Option<PathBuf> {
             println!("Please use absolute path");
             return None;
         }
-        return Some(path);
+        Some(path)
     } else {
         println!("Nothing was passed in");
-        return None;
+        None
     }
 }
 
