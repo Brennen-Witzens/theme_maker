@@ -25,9 +25,9 @@ impl RGBColor {
 
 #[derive(Debug)]
 enum RGB {
-    Red,
-    Green,
-    Blue,
+    Red(u8),
+    Green(u8),
+    Blue(u8),
 }
 
 enum ColorExtractionType {
@@ -69,9 +69,8 @@ fn main() {
         // We can determine what style to use -> Mean, Median, Mode for the cube, default will be
         // Mode (most common)
         for cube in median_split.values() {
-            println!("Length of cube: {}", cube.len());
-            let extracted_color = extract_color_from_cube(cube, ColorExtractionType::Mode);
-            println!("Extracted Color: {extracted_color:?}");
+            //println!("Length of cube: {}", cube.len());
+            let extracted_color = extract_color_from_cube(cube, ColorExtractionType::Mean);
             convert_rgb_to_hex(&extracted_color);
         }
     }
@@ -80,29 +79,12 @@ fn main() {
 fn convert_rgb_to_hex(color: &RGBColor) {
     let red_quotient = color.red / 16;
     let red_remainder = color.red - (red_quotient * 16);
-    println!(
-        "Red Q: {}, Red R: {} -- Hex: {}",
-        red_quotient,
-        red_remainder,
-        format!("{:x}", color.red)
-    );
+
     let green_quotient = color.green / 16;
     let green_remainder = color.green - (green_quotient * 16);
-    println!(
-        "green Q: {}, green R: {} -- Hex: {}",
-        green_quotient,
-        green_remainder,
-        format!("{:x}", color.green)
-    );
 
     let blue_quotient = color.blue / 16;
     let blue_remainder = color.blue - (blue_quotient * 16);
-    println!(
-        "blue Q: {}, blue R: {} -- Hex: {}",
-        blue_quotient,
-        blue_remainder,
-        format!("{:x}", color.blue)
-    );
 
     print!("RBG is: {} {} {} -> ", color.red, color.green, color.blue);
     print!(
@@ -202,8 +184,11 @@ fn find_median(
     let median: u8;
     let median_idx = colors.len() / 2;
 
+    println!("Color to cut: {color_to_cut:?}");
+
     match color_to_cut {
-        RGB::Red => {
+        RGB::Red(val) => {
+            println!("Red Value: {val}");
             colors.sort_by(|x, y| x.red.cmp(&y.red));
             if colors.len().is_multiple_of(2) {
                 median = (colors[median_idx - 1].red + colors[median_idx].red) / 2;
@@ -218,7 +203,8 @@ fn find_median(
                 }
             }
         }
-        RGB::Green => {
+        RGB::Green(val) => {
+            println!("Green Value: {val}");
             colors.sort_by(|x, y| x.green.cmp(&y.green));
             if colors.len().is_multiple_of(2) {
                 median = (colors[median_idx - 1].green + colors[median_idx].green) / 2;
@@ -233,7 +219,8 @@ fn find_median(
                 }
             }
         }
-        RGB::Blue => {
+        RGB::Blue(val) => {
+            println!("Blue Value: {val}");
             colors.sort_by(|x, y| x.blue.cmp(&y.blue));
             if colors.len().is_multiple_of(2) {
                 median = (colors[median_idx - 1].blue + colors[median_idx].blue) / 2;
@@ -272,12 +259,16 @@ fn find_color_range(cube: &[RGBColor]) -> RGB {
     let b_min = cube.iter().min_by(|x, y| x.blue.cmp(&y.blue)).unwrap();
     let b_range = b_max.blue - b_min.blue;
 
+    println!(
+        "Red: {} -- Green: {} -- Blue: {}",
+        r_range, g_range, b_range
+    );
     if r_range >= g_range && r_range >= b_range {
-        RGB::Red
+        RGB::Red(r_range)
     } else if g_range >= r_range && g_range >= b_range {
-        RGB::Green
+        RGB::Green(g_range)
     } else {
-        RGB::Blue
+        RGB::Blue(b_range)
     }
 }
 
