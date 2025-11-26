@@ -30,8 +30,16 @@ enum RGB {
     Blue,
 }
 
+enum ColorExtractionType {
+    Mean,
+    Median,
+    Mode,
+}
+
 // default palette size
 const DEFAULT_PALETTE_SIZE: u8 = 6;
+// default color extraction type
+const DEFAULT_COLOR_EXTRACTION_METHOD: ColorExtractionType = ColorExtractionType::Mode;
 
 fn main() {
     let image_path = build_image_path();
@@ -52,12 +60,135 @@ fn main() {
             let cube = median_split.get(&format(format_args!("Cube{i}")));
             if let Some(cube) = cube {
                 let range = find_color_range(cube);
-                println!("Range two: {range:?}");
 
                 median_split.extend(find_median(&range, cube.clone(), i));
             }
         }
-        println!("Median Split: {:?}", median_split.keys());
+
+        // After we've exited the loop, we need to get the overall color for each cube
+        // We can determine what style to use -> Mean, Median, Mode for the cube, default will be
+        // Mode (most common)
+        for cube in median_split.values() {
+            println!("Length of cube: {}", cube.len());
+            let extracted_color = extract_color_from_cube(cube, ColorExtractionType::Mode);
+            println!("Extracted Color: {extracted_color:?}");
+            convert_rgb_to_hex(&extracted_color);
+        }
+    }
+}
+
+fn convert_rgb_to_hex(color: &RGBColor) {
+    let red_quotient = color.red / 16;
+    let red_remainder = color.red - (red_quotient * 16);
+    println!(
+        "Red Q: {}, Red R: {} -- Hex: {}",
+        red_quotient,
+        red_remainder,
+        format!("{:x}", color.red)
+    );
+    let green_quotient = color.green / 16;
+    let green_remainder = color.green - (green_quotient * 16);
+    println!(
+        "green Q: {}, green R: {} -- Hex: {}",
+        green_quotient,
+        green_remainder,
+        format!("{:x}", color.green)
+    );
+
+    let blue_quotient = color.blue / 16;
+    let blue_remainder = color.blue - (blue_quotient * 16);
+    println!(
+        "blue Q: {}, blue R: {} -- Hex: {}",
+        blue_quotient,
+        blue_remainder,
+        format!("{:x}", color.blue)
+    );
+
+    print!("RBG is: {} {} {} -> ", color.red, color.green, color.blue);
+    print!(
+        "Hex is: {:x}{:x}{:x} -> ",
+        color.red, color.green, color.blue
+    );
+    println!(
+        "\u{001b}[48;2;{};{};{}m    \u{001b}[m",
+        color.red, color.green, color.blue
+    );
+}
+
+fn extract_color_from_cube(colors: &[RGBColor], extraction_style: ColorExtractionType) -> RGBColor {
+    let color: RGBColor;
+    match extraction_style {
+        ColorExtractionType::Mean => {
+            let red_sum: u32 = colors.iter().map(|x| x.red as u32).sum();
+            let red_mean = red_sum / colors.len() as u32;
+
+            let green_sum: u32 = colors.iter().map(|x| x.green as u32).sum();
+            let green_mean = green_sum / colors.len() as u32;
+
+            let blue_sum: u32 = colors.iter().map(|x| x.blue as u32).sum();
+            let blue_mean = blue_sum / colors.len() as u32;
+
+            color = RGBColor::build_color(red_mean as u8, green_mean as u8, blue_mean as u8);
+            color
+        }
+        ColorExtractionType::Median => todo!(),
+        ColorExtractionType::Mode => {
+            let mut common_color = HashMap::<u8, u32>::new();
+            let red_common = {
+                for color in colors.iter() {
+                    if !common_color.contains_key(&color.red) {
+                        common_color.insert(color.red, 1);
+                    } else {
+                        common_color.entry(color.red).and_modify(|x| *x += 1);
+                    }
+                }
+
+                common_color
+                    .clone()
+                    .into_iter()
+                    .max_by_key(|&(_, count)| count)
+                    .map(|(val, _)| val)
+                    .unwrap()
+            };
+
+            common_color.clear();
+
+            let green_common = {
+                for color in colors.iter() {
+                    if !common_color.contains_key(&color.green) {
+                        common_color.insert(color.green, 1);
+                    } else {
+                        common_color.entry(color.green).and_modify(|x| *x += 1);
+                    }
+                }
+
+                common_color
+                    .clone()
+                    .into_iter()
+                    .max_by_key(|&(_, count)| count)
+                    .map(|(val, _)| val)
+                    .unwrap()
+            };
+            common_color.clear();
+            let blue_common = {
+                for color in colors.iter() {
+                    if !common_color.contains_key(&color.blue) {
+                        common_color.insert(color.blue, 1);
+                    } else {
+                        common_color.entry(color.blue).and_modify(|x| *x += 1);
+                    }
+                }
+                common_color
+                    .clone()
+                    .into_iter()
+                    .max_by_key(|&(_, count)| count)
+                    .map(|(val, _)| val)
+                    .unwrap()
+            };
+            println!("Most common values: {red_common:?} -- {green_common} -- {blue_common}");
+            color = RGBColor::build_color(red_common, green_common, blue_common);
+            color
+        }
     }
 }
 
