@@ -5,7 +5,7 @@ use crate::{RGBColor, Rgb};
 pub fn median_cut(
     color_cube: &[RGBColor],
     color_to_cut: Rgb,
-    iter: i32,
+    iter: i8,
 ) -> HashMap<String, Vec<RGBColor>> {
     let mut cube: Vec<_> = color_cube.to_vec();
     // Sort cube by color values

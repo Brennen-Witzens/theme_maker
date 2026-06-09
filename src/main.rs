@@ -2,8 +2,8 @@ mod algorithms;
 mod utils;
 
 use algorithms::median_cut::{median_cut, quantize_values};
-use clap::{Arg, Command};
-use image::GenericImageView;
+use clap::{Arg, ArgAction, Command};
+use image::{GenericImageView, ImageReader};
 use std::{
     cmp::Ordering,
     collections::HashMap,
@@ -50,54 +50,65 @@ impl Cube {
     }
 }
 
-const PALETTE_SIZE: i32 = 5;
+const PALETTE_SIZE: i8 = 5;
 
 fn main() -> Result<(), std::io::Error> {
-    // Open image from command line argument
-    let image_path = build_image_path();
+    //Setup the command and arguments
+    let cmd = setup_app_cmd("ThemeMaker", "0.0.1");
+    let arg_matches = cmd.get_matches();
+
+    let image_path = arg_matches
+        .get_one("image")
+        .map(|v: &String| PathBuf::from(v))
+        .expect("Should have retrevied a value for image path");
+
+    let palette_size = arg_matches
+        .get_one("palette_size")
+        .map(|v: &String| v.parse::<i8>().unwrap())
+        .expect("should have gotten a number value for palette size");
 
     // Make sure we have a path that is something
-    if let Some(path) = image_path {
-        let colors = get_pixels_from_image(&path);
+    // if let Some(path) = image_path {
+    let colors = get_pixels_from_image(image_path.as_path());
 
-        let mut cut_images = HashMap::<String, Vec<RGBColor>>::new();
-        let mut cubes = Vec::<Cube>::new();
+    let mut cut_images = HashMap::<String, Vec<RGBColor>>::new();
+    let mut cubes = Vec::<Cube>::new();
 
-        // We should have the base value here --> Original colors/image added first
-        // Remove the entry later (after it's been cut)
-        cut_images.insert("Original".to_string(), colors);
+    // We should have the base value here --> Original colors/image added first
+    // Remove the entry later (after it's been cut)
+    cut_images.insert("Original".to_string(), colors);
 
-        for i in 0..PALETTE_SIZE {
-            // need to go over the cubes to find largest range
-            for (key, val) in cut_images.iter() {
-                // Determine largest range of color in the values (cubes)
-                let cube = determine_cube_cut_criteria(key, val);
-                cubes.push(cube);
-            }
-
-            // Iterate over the cubes to determine which cube to use, IE which has the
-            // largest range for a color
-            let val = cubes.iter().max_by_key(|x| x.range).unwrap();
-
-            let cube_to_cut = cut_images.get(&val.name).unwrap();
-            let cube = median_cut(cube_to_cut, val.color, i);
-
-            let _ = cut_images.remove_entry(&val.name);
-
-            cut_images.extend(cube.into_iter());
-
-            // Clear cubes at the end of the X
-            cubes.clear();
+    for i in 0..PALETTE_SIZE {
+        // need to go over the cubes to find largest range
+        for (key, val) in cut_images.iter() {
+            // Determine largest range of color in the values (cubes)
+            let cube = determine_cube_cut_criteria(key, val);
+            cubes.push(cube);
         }
 
-        for colors in cut_images.values() {
-            quantize_values(colors);
-        }
+        // Iterate over the cubes to determine which cube to use, IE which has the
+        // largest range for a color
+        let val = cubes.iter().max_by_key(|x| x.range).unwrap();
+
+        let cube_to_cut = cut_images.get(&val.name).unwrap();
+        let cube = median_cut(cube_to_cut, val.color, i);
+
+        let _ = cut_images.remove_entry(&val.name);
+
+        cut_images.extend(cube.into_iter());
+
+        // Clear cubes at the end of the X
+        cubes.clear();
+    }
+
+    for colors in cut_images.values() {
+        quantize_values(colors);
     }
 
     Ok(())
 }
 
+// TODO: Need to scale the image
 fn get_pixels_from_image(image_path: &Path) -> Vec<RGBColor> {
     let image = image::open(image_path);
 
@@ -238,4 +249,23 @@ fn determine_cube_cut_criteria(cube_name: &str, cube: &[RGBColor]) -> Cube {
     }
 
     Cube::new(cube_name, color_choice, range)
+}
+
+fn setup_app_cmd(app_name: &'static str, app_version: &'static str) -> clap::Command {
+    clap::Command::new(app_name)
+        .version(app_version)
+        .arg(
+            Arg::new("image")
+                .short('i')
+                .long("image")
+                .help("The image you want to generate a color palette from")
+                .action(ArgAction::Set),
+        )
+        .arg(
+            Arg::new("palette_size")
+                .short('p')
+                .help("The palette size that should be generated")
+                .default_value("16")
+                .action(ArgAction::Set),
+        )
 }
