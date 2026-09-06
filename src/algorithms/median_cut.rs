@@ -168,47 +168,47 @@
 //// TODO:
 //// - Add a way to change the choice that is returned.
 //// - move to utils
-//pub fn quantize_values(colors: &Vec<RGBColor>) {
-//    // average them
-//    let mut r_avg;
-//    let mut g_avg;
-//    let mut b_avg;
-//
-//    let mut r_sum: u32 = 0;
-//    let mut g_sum: u32 = 0;
-//    let mut b_sum: u32 = 0;
-//    for color in colors.iter() {
-//        r_sum += color.r as u32;
-//        g_sum += color.g as u32;
-//        b_sum += color.b as u32;
-//    }
-//
-//    r_avg = r_sum / colors.len() as u32;
-//    g_avg = g_sum / colors.len() as u32;
-//    b_avg = b_sum / colors.len() as u32;
-//
-//    print!("Avg Color is: {r_avg} - {g_avg} - {b_avg} ->");
-//    println!("\u{001b}[48;2;{};{};{}m    \u{001b}[m", r_avg, g_avg, b_avg);
-//
-//    //// NOTE: Try doing mode
-//    //let mut most_common = HashMap::<RGBColor, i32>::new();
-//
-//    //for &color in colors {
-//    //    *most_common.entry(color).or_insert(0) += 1;
-//    //}
-//
-//    //let most_common_color = most_common
-//    //    .into_iter()
-//    //    .max_by_key(|&(_, count)| count)
-//    //    .map(|(val, _)| val)
-//    //    .unwrap();
-//
-//    //print!(
-//    //    "Common Color is: {} - {} - {} ->",
-//    //    most_common_color.r, most_common_color.g, most_common_color.b
-//    //);
-//    //println!(
-//    //    "\u{001b}[48;2;{};{};{}m    \u{001b}[m",
-//    //    most_common_color.r, most_common_color.g, most_common_color.b
-//    //);
-//}
+// pub fn quantize_values(colors: &Vec<RGBColor>) {
+//     // average them
+//     let mut r_avg;
+//     let mut g_avg;
+//     let mut b_avg;
+
+//     let mut r_sum: u32 = 0;
+//     let mut g_sum: u32 = 0;
+//     let mut b_sum: u32 = 0;
+//     for color in colors.iter() {
+//         r_sum += color.r as u32;
+//         g_sum += color.g as u32;
+//         b_sum += color.b as u32;
+//     }
+
+//     r_avg = r_sum / colors.len() as u32;
+//     g_avg = g_sum / colors.len() as u32;
+//     b_avg = b_sum / colors.len() as u32;
+
+//     print!("Avg Color is: {r_avg} - {g_avg} - {b_avg} ->");
+//     println!("\u{001b}[48;2;{};{};{}m    \u{001b}[m", r_avg, g_avg, b_avg);
+
+//     //// NOTE: Try doing mode
+//     //let mut most_common = HashMap::<RGBColor, i32>::new();
+
+//     //for &color in colors {
+//     //    *most_common.entry(color).or_insert(0) += 1;
+//     //}
+
+//     //let most_common_color = most_common
+//     //    .into_iter()
+//     //    .max_by_key(|&(_, count)| count)
+//     //    .map(|(val, _)| val)
+//     //    .unwrap();
+
+//     //print!(
+//     //    "Common Color is: {} - {} - {} ->",
+//     //    most_common_color.r, most_common_color.g, most_common_color.b
+//     //);
+//     //println!(
+//     //    "\u{001b}[48;2;{};{};{}m    \u{001b}[m",
+//     //    most_common_color.r, most_common_color.g, most_common_color.b
+//     //);
+// }

@@ -1,15 +1,18 @@
 mod algorithms;
 mod utils;
 
-use clap::{Arg, Command};
-use image::GenericImageView;
+use clap::{Arg, ArgAction, Command};
+use image::{GenericImageView, RgbImage};
 use std::{
-    collections::HashMap,
+    collections::{btree_map::Keys, HashMap},
     fmt::format,
+    io::Error,
     path::{Path, PathBuf},
 };
 
-// NOTE: dont necessarily want to use clone...
+const ESCAPE_KEY: &str = "\u{001b}[";
+const RESET_KEY: &str = "\u{001b}[m";
+
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 struct RGBColor {
     red: u8,
@@ -23,57 +26,160 @@ impl RGBColor {
     }
 }
 
-#[derive(Debug)]
-enum RGB {
-    Red(u8),
-    Green(u8),
-    Blue(u8),
-}
-
+#[derive(Clone, Debug)]
 enum ColorExtractionType {
     Mean,
     Median,
     Mode,
 }
 
-// default palette size
+// TODO: Put both of these in an app config struct and have that be the default
+// Default palette size
 const DEFAULT_PALETTE_SIZE: u8 = 6;
 // default color extraction type
 const DEFAULT_COLOR_EXTRACTION_METHOD: ColorExtractionType = ColorExtractionType::Mode;
 
-fn main() {
-    let image_path = build_image_path();
+struct App {
+    palette_size: u8,
+    color_extraction_method: ColorExtractionType,
+    image_path: PathBuf,
+    // Export Path?
+}
 
-    if let Some(path) = image_path {
-        let colors = get_pixels_from_image(&path);
+#[derive(Clone, Default, Debug)]
+struct AppBuilder {
+    palette_size: Option<u8>,
+    color_extraction_method: Option<ColorExtractionType>,
+    image_path: Option<PathBuf>,
+}
 
-        // Take the colors from the image and calculate the range of each component
-        let range = find_color_range(&colors);
+impl AppBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-        // Once we have the range, we need to split the values on the largest component and then
-        // find the median value and split the cubes to upper and lower values.
-        // NOTE: might be worth using a map for this
-        let mut median_split = find_median(&range, colors, 1);
+    pub fn with_image_path(mut self, image_path: &str) -> Self {
+        self.image_path = Some(PathBuf::from(image_path));
+        self
+    }
 
-        // We have the first 2 cubes, now we need to get the rest
-        for i in 2..DEFAULT_PALETTE_SIZE {
-            let cube = median_split.get(&format(format_args!("Cube{i}")));
-            if let Some(cube) = cube {
-                let range = find_color_range(cube);
+    pub fn build(self) -> Result<App, std::io::Error> {
+        let palette_size = self.palette_size.unwrap_or_else(|| DEFAULT_PALETTE_SIZE);
 
-                median_split.extend(find_median(&range, cube.clone(), i));
-            }
+        let color_extraction_method = self
+            .color_extraction_method
+            .unwrap_or_else(|| ColorExtractionType::Mean);
+
+        let image_path = self.image_path.unwrap();
+        if image_path.is_relative() {
+            return Err(Error::new(
+                std::io::ErrorKind::Other,
+                "Please enter an absolute path",
+            ));
         }
 
-        // After we've exited the loop, we need to get the overall color for each cube
-        // We can determine what style to use -> Mean, Median, Mode for the cube, default will be
-        // Mode (most common)
-        for cube in median_split.values() {
-            //println!("Length of cube: {}", cube.len());
-            let extracted_color = extract_color_from_cube(cube, ColorExtractionType::Mean);
-            convert_rgb_to_hex(&extracted_color);
+        Ok(App {
+            palette_size,
+            color_extraction_method,
+            image_path,
+        })
+    }
+}
+
+fn main() {
+    let cmd = setup_app_command(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    let arg_matches = cmd.get_matches();
+
+    let image_path = arg_matches.get_one("image").map(|v: &String| v.to_string());
+
+    let app_builder = AppBuilder::new()
+        .with_image_path(&image_path.unwrap_or_default())
+        .build();
+
+    let app = app_builder.unwrap();
+
+    let image = image::open(app.image_path.as_path()).unwrap();
+    let resized_image = resize_image(&image.to(), 300);
+    let sample_pixels = get_sample_pixels_from_image(&resized_image, 2);
+
+    let centroids = kmeans(&sample_pixels, 6, 8);
+
+    let mut colors: Vec<RGBColor> = centroids
+        .into_iter()
+        .map(|x| RGBColor::build_color(x[0] as u8, x[1] as u8, x[2] as u8))
+        .collect();
+
+    for color in colors {
+        println!(
+            "\u{001b}[48;2;{};{};{}m    \u{001b}[m",
+            color.red, color.green, color.blue
+        );
+    }
+}
+
+fn resize_image(image: &RgbImage, target_width: u32) -> RgbImage {
+    let (w, h) = image.dimensions();
+
+    if w <= target_width {
+        return image.clone();
+    }
+
+    let scale = target_width as f32 / w as f32;
+    let target_height = (h as f32 * scale).round() as u32;
+
+    image::imageops::resize(
+        image,
+        target_width,
+        target_height,
+        image::imageops::FilterType::Triangle,
+    )
+}
+
+fn kmeans(samples: &[[f32; 3]], clusters: usize, iterations: usize) -> Vec<[f32; 3]> {
+    let mut centroids: Vec<[f32; 3]> = samples.iter().take(clusters).cloned().collect();
+
+    for _ in 0..iterations {
+        let mut buckets: Vec<Vec<[f32; 3]>> = vec![Vec::new(); clusters];
+
+        for sample in samples {
+            let mut best = 0;
+            let mut best_dist = f32::MAX;
+
+            for (i, centroid) in centroids.iter().enumerate() {
+                let d = (sample[0] - centroid[0]).powi(2)
+                    + (sample[1] - centroid[1]).powi(2)
+                    + (sample[2] - centroid[2]).powi(2);
+
+                if d < best_dist {
+                    best = i;
+                    best_dist = d;
+                }
+            }
+
+            buckets[best].push(*sample);
+        }
+
+        for (i, bucket) in buckets.iter().enumerate() {
+            if bucket.is_empty() {
+                continue;
+            }
+
+            let mut sum = [0.0; 3];
+            for k in bucket {
+                sum[0] += k[0];
+                sum[1] += k[1];
+                sum[2] += k[2];
+            }
+
+            centroids[i] = [
+                sum[0] / bucket.len() as f32,
+                sum[1] / bucket.len() as f32,
+                sum[2] / bucket.len() as f32,
+            ];
         }
     }
+
+    centroids
 }
 
 fn convert_rgb_to_hex(color: &RGBColor) {
@@ -174,136 +280,124 @@ fn extract_color_from_cube(colors: &[RGBColor], extraction_style: ColorExtractio
     }
 }
 
-fn find_median(
-    color_to_cut: &RGB,
-    mut colors: Vec<RGBColor>,
-    idx: u8,
-) -> HashMap<String, Vec<RGBColor>> {
-    let mut upper_values: Vec<RGBColor> = Vec::new();
-    let mut lower_values: Vec<RGBColor> = Vec::new();
-    let median: u8;
-    let median_idx = colors.len() / 2;
+// fn find_median(
+//     color_to_cut: &RGB,
+//     mut colors: Vec<RGBColor>,
+//     idx: u8,
+// ) -> HashMap<String, Vec<RGBColor>> {
+//     let mut upper_values: Vec<RGBColor> = Vec::new();
+//     let mut lower_values: Vec<RGBColor> = Vec::new();
+//     let median: u8;
+//     let median_idx = colors.len() / 2;
 
-    println!("Color to cut: {color_to_cut:?}");
+//     println!("Color to cut: {color_to_cut:?}");
 
-    match color_to_cut {
-        RGB::Red(val) => {
-            println!("Red Value: {val}");
-            colors.sort_by(|x, y| x.red.cmp(&y.red));
-            if colors.len().is_multiple_of(2) {
-                median = (colors[median_idx - 1].red + colors[median_idx].red) / 2;
-            } else {
-                median = colors[median_idx].red;
-            }
-            for color in colors {
-                if color.red >= median {
-                    upper_values.push(color);
-                } else {
-                    lower_values.push(color);
-                }
-            }
-        }
-        RGB::Green(val) => {
-            println!("Green Value: {val}");
-            colors.sort_by(|x, y| x.green.cmp(&y.green));
-            if colors.len().is_multiple_of(2) {
-                median = (colors[median_idx - 1].green + colors[median_idx].green) / 2;
-            } else {
-                median = colors[median_idx].green;
-            }
-            for color in colors {
-                if color.green >= median {
-                    upper_values.push(color);
-                } else {
-                    lower_values.push(color);
-                }
-            }
-        }
-        RGB::Blue(val) => {
-            println!("Blue Value: {val}");
-            colors.sort_by(|x, y| x.blue.cmp(&y.blue));
-            if colors.len().is_multiple_of(2) {
-                median = (colors[median_idx - 1].blue + colors[median_idx].blue) / 2;
-            } else {
-                median = colors[median_idx].blue;
-            }
-            for color in colors {
-                if color.blue >= median {
-                    upper_values.push(color);
-                } else {
-                    lower_values.push(color);
-                }
-            }
-        }
-    }
+//     match color_to_cut {
+//         RGB::Red(val) => {
+//             println!("Red Value: {val}");
+//             colors.sort_by(|x, y| x.red.cmp(&y.red));
+//             if colors.len().is_multiple_of(2) {
+//                 median = (colors[median_idx - 1].red + colors[median_idx].red) / 2;
+//             } else {
+//                 median = colors[median_idx].red;
+//             }
+//             for color in colors {
+//                 if color.red >= median {
+//                     upper_values.push(color);
+//                 } else {
+//                     lower_values.push(color);
+//                 }
+//             }
+//         }
+//         RGB::Green(val) => {
+//             println!("Green Value: {val}");
+//             colors.sort_by(|x, y| x.green.cmp(&y.green));
+//             if colors.len().is_multiple_of(2) {
+//                 median = (colors[median_idx - 1].green + colors[median_idx].green) / 2;
+//             } else {
+//                 median = colors[median_idx].green;
+//             }
+//             for color in colors {
+//                 if color.green >= median {
+//                     upper_values.push(color);
+//                 } else {
+//                     lower_values.push(color);
+//                 }
+//             }
+//         }
+//         RGB::Blue(val) => {
+//             println!("Blue Value: {val}");
+//             colors.sort_by(|x, y| x.blue.cmp(&y.blue));
+//             if colors.len().is_multiple_of(2) {
+//                 median = (colors[median_idx - 1].blue + colors[median_idx].blue) / 2;
+//             } else {
+//                 median = colors[median_idx].blue;
+//             }
+//             for color in colors {
+//                 if color.blue >= median {
+//                     upper_values.push(color);
+//                 } else {
+//                     lower_values.push(color);
+//                 }
+//             }
+//         }
+//     }
 
-    let mut map: HashMap<String, Vec<RGBColor>> = HashMap::new();
+//     let mut map: HashMap<String, Vec<RGBColor>> = HashMap::new();
 
-    map.insert(format(format_args!("Cube{}", idx)), upper_values);
-    map.insert(format(format_args!("Cube{}", idx + 1)), lower_values);
-    map
+//     map.insert(format(format_args!("Cube{}", idx)), upper_values);
+//     map.insert(format(format_args!("Cube{}", idx + 1)), lower_values);
+//     map
+// }
+
+// /// Takes in a vector of colors, and returns a color with the max range of each value for the cube
+// fn find_color_range(cube: &[RGBColor]) -> RGB {
+//     // Iterate over the cube to find the min and max values for each channel
+//     let r_max = cube.iter().max_by(|x, y| x.red.cmp(&y.red)).unwrap();
+//     let r_min = cube.iter().min_by(|x, y| x.red.cmp(&y.red)).unwrap();
+//     let r_range = r_max.red - r_min.red;
+
+//     let g_max = cube.iter().max_by(|x, y| x.green.cmp(&y.green)).unwrap();
+//     let g_min = cube.iter().min_by(|x, y| x.green.cmp(&y.green)).unwrap();
+//     let g_range = g_max.green - g_min.green;
+
+//     let b_max = cube.iter().max_by(|x, y| x.blue.cmp(&y.blue)).unwrap();
+//     let b_min = cube.iter().min_by(|x, y| x.blue.cmp(&y.blue)).unwrap();
+//     let b_range = b_max.blue - b_min.blue;
+
+//     println!(
+//         "Red: {} -- Green: {} -- Blue: {}",
+//         r_range, g_range, b_range
+//     );
+//     if r_range >= g_range && r_range >= b_range {
+//         RGB::Red(r_range)
+//     } else if g_range >= r_range && g_range >= b_range {
+//         RGB::Green(g_range)
+//     } else {
+//         RGB::Blue(b_range)
+//     }
+// }
+
+// TODO: Add Palette size, Execution Method, and Web Request style commands
+fn setup_app_command(app_name: &'static str, app_version: &'static str) -> clap::Command {
+    clap::Command::new(app_name).version(app_version).arg(
+        Arg::new("image")
+            .long("image")
+            .help("The image path that you want to create a theme for")
+            .short('i')
+            .action(ArgAction::Set),
+    )
 }
 
-/// Takes in a vector of colors, and returns a color with the max range of each value for the cube
-fn find_color_range(cube: &[RGBColor]) -> RGB {
-    // Iterate over the cube to find the min and max values for each channel
-    let r_max = cube.iter().max_by(|x, y| x.red.cmp(&y.red)).unwrap();
-    let r_min = cube.iter().min_by(|x, y| x.red.cmp(&y.red)).unwrap();
-    let r_range = r_max.red - r_min.red;
+fn get_sample_pixels_from_image(image: &RgbImage, step: u32) -> Vec<[f32; 3]> {
+    let mut colors = Vec::new();
 
-    let g_max = cube.iter().max_by(|x, y| x.green.cmp(&y.green)).unwrap();
-    let g_min = cube.iter().min_by(|x, y| x.green.cmp(&y.green)).unwrap();
-    let g_range = g_max.green - g_min.green;
-
-    let b_max = cube.iter().max_by(|x, y| x.blue.cmp(&y.blue)).unwrap();
-    let b_min = cube.iter().min_by(|x, y| x.blue.cmp(&y.blue)).unwrap();
-    let b_range = b_max.blue - b_min.blue;
-
-    println!(
-        "Red: {} -- Green: {} -- Blue: {}",
-        r_range, g_range, b_range
-    );
-    if r_range >= g_range && r_range >= b_range {
-        RGB::Red(r_range)
-    } else if g_range >= r_range && g_range >= b_range {
-        RGB::Green(g_range)
-    } else {
-        RGB::Blue(b_range)
-    }
-}
-
-fn build_image_path() -> Option<PathBuf> {
-    // Get the commands
-    let matches = Command::new("myapp")
-        .arg(Arg::new("image").short('i').long("image"))
-        .get_matches();
-
-    if let Some(image_path) = matches.get_one::<String>("image") {
-        let path = PathBuf::from(image_path);
-        if path.is_relative() {
-            println!("Please use absolute path");
-            return None;
-        }
-        Some(path)
-    } else {
-        println!("Nothing was passed in");
-        None
-    }
-}
-
-fn get_pixels_from_image(image_path: &Path) -> Vec<RGBColor> {
-    let image = image::open(image_path);
-
-    let mut colors = Vec::<RGBColor>::new();
-
-    if let Ok(image_result) = image {
-        for element in image_result.pixels() {
-            colors.push(RGBColor::build_color(
-                element.2 .0[0],
-                element.2 .0[1],
-                element.2 .0[2],
-            ));
-        }
+    for element in image.pixels().step_by(step as usize) {
+        colors.push([
+            element.0[0] as f32,
+            element.0[1] as f32,
+            element.0[2] as f32,
+        ]);
     }
     colors
 }
@@ -313,6 +407,7 @@ mod tests {
     use super::*;
     use clap::value_parser;
 
+    // Look at TDD again soon to better understand it. Write notes
     // NOTE:
     // While this was writing tests first, it wasn't TDD style. This was "forcing" the tests to
     // work in the intended way then writing the code logic to mirror this. We want to write a test
